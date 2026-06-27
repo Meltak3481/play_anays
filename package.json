@@ -1,16 +1,14 @@
 {
-  "name": "app-rank-api",
+  "name": "aso-rank-backend",
   "version": "1.0.0",
-  "private": true,
-  "type": "module",
+  "description": "Play Store keyword rank checker (google-play-scraper)",
+  "main": "index.js",
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy"
+    "start": "node index.js"
   },
   "dependencies": {
-    "google-play-scraper": "^10.0.0"
-  },
-  "devDependencies": {
-    "wrangler": "^3.78.0"
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "google-play-scraper": "^9.0.0"
   }
 }

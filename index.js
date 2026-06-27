@@ -1,82 +1,54 @@
 // =====================================================================
-// Cloudflare Worker — App Rank API (JavaScript)
-// Aynı uçlar: /play/lookup ve /play/rank
-// google-play-scraper (npm) ile 250'ye kadar tarar.
+// ASO Rank Backend
+// Play Store anahtar kelime sıralama kontrolü (google-play-scraper)
+// GET /rank?keyword=...&id=com.paket.adi&country=tr&lang=tr&num=250
 // =====================================================================
 
-import gplay from 'google-play-scraper';
-// Eğer "gplay.search is not a function" hatası alırsan üst satırı silip
-// şunu dene:  import * as gplay from 'google-play-scraper';
+const express = require('express');
+const cors = require('cors');
+const gplay = require('google-play-scraper');
 
-const CORS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
-  'Content-Type': 'application/json; charset=utf-8',
-};
+const app = express();
+app.use(cors());
 
-function jsonResponse(obj, status = 200) {
-  return new Response(JSON.stringify(obj), { status, headers: CORS });
-}
+// Sağlık kontrolü (Railway URL'ini tarayıcıda açınca bunu görürsün)
+app.get('/', (req, res) => {
+  res.send('ASO Rank Backend calisiyor ✅  ->  /rank?keyword=...&id=...');
+});
 
-export default {
-  async fetch(request) {
-    const url = new URL(request.url);
+// Asıl sıralama endpoint'i
+app.get('/rank', async (req, res) => {
+  try {
+    const keyword = (req.query.keyword || '').trim();
+    const id = (req.query.id || '').trim();
+    const country = (req.query.country || 'tr').toLowerCase();
+    const lang = (req.query.lang || 'tr').toLowerCase();
+    let num = parseInt(req.query.num || '250', 10);
+    if (isNaN(num) || num <= 0) num = 250;
+    if (num > 250) num = 250; // Google pratikte ~250 derinlik veriyor
 
-    if (request.method === 'OPTIONS') {
-      return new Response(null, { headers: CORS });
+    if (!keyword || !id) {
+      return res.status(400).json({ error: 'keyword ve id parametreleri zorunlu' });
     }
 
-    // Sağlık kontrolü
-    if (url.pathname === '/' || url.pathname === '') {
-      return jsonResponse({ ok: true, service: 'app-rank-api' });
-    }
+    const list = await gplay.search({ term: keyword, num, country, lang });
 
-    const lang = url.searchParams.get('lang') || 'tr';
-    const country = url.searchParams.get('country') || 'tr';
+    const idx = list.findIndex(
+      (a) => (a.appId || '').toLowerCase() === id.toLowerCase()
+    );
 
-    // --- Uygulama doğrulama (isim + ikon) ---
-    if (url.pathname === '/play/lookup') {
-      const pkg = url.searchParams.get('pkg');
-      if (!pkg) return jsonResponse({ detail: 'pkg gerekli' }, 400);
-      try {
-        const info = await gplay.app({ appId: pkg, lang, country });
-        return jsonResponse({ id: pkg, name: info.title, icon: info.icon });
-      } catch (e) {
-        return jsonResponse({ detail: `App not found: ${e}` }, 404);
-      }
-    }
+    return res.json({
+      keyword,
+      id,
+      country,
+      rank: idx >= 0 ? idx + 1 : -1, // bulunamazsa -1
+      total: list.length,
+    });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ error: String((e && e.message) || e) });
+  }
+});
 
-    // --- Sıralama bul ---
-    if (url.pathname === '/play/rank') {
-      const pkg = url.searchParams.get('pkg');
-      const kw = url.searchParams.get('kw');
-      const n = parseInt(url.searchParams.get('n') || '250', 10);
-      if (!pkg || !kw) return jsonResponse({ detail: 'pkg ve kw gerekli' }, 400);
-
-      try {
-        const results = await gplay.search({
-          term: kw,
-          num: n,
-          lang,
-          country,
-        });
-
-        for (let i = 0; i < results.length; i++) {
-          if (results[i].appId === pkg) {
-            return jsonResponse({
-              rank: i + 1,
-              total: results.length,
-              name: results[i].title,
-              icon: results[i].icon,
-            });
-          }
-        }
-        return jsonResponse({ rank: -1, total: results.length, name: null });
-      } catch (e) {
-        return jsonResponse({ detail: String(e) }, 500);
-      }
-    }
-
-    return jsonResponse({ detail: 'not found' }, 404);
-  },
-};
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log('ASO Rank Backend listening on ' + PORT));
