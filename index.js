@@ -42,6 +42,7 @@ app.get('/rank', async (req, res) => {
     let token = null;
     let pages = 0;
     let rank = -1;
+    let dbg = null;
 
     while (pages < maxPages) {
       pages++;
@@ -78,6 +79,17 @@ app.get('/rank', async (req, res) => {
         }
       }
 
+      // ilk sayfada teşhis bilgisini yakala
+      if (req.query.debug === '1' && pages === 1) {
+        dbg = {
+          top_level_keys: Object.keys(data),
+          pagination: data.pagination || null,
+          sections: sections.length,
+          section_titles: sections.map((s) => s.title || '(başlıksız)'),
+          section_item_counts: sections.map((s) => (Array.isArray(s.items) ? s.items.length : 0)),
+        };
+      }
+
       const idx = ordered.findIndex((e) => e.toLowerCase() === lowerId);
       if (idx >= 0) {
         rank = idx + 1;
@@ -88,14 +100,16 @@ app.get('/rank', async (req, res) => {
       if (!token) break; // son sayfa
     }
 
-    return res.json({
+    const out = {
       keyword,
       id,
       country: gl,
       rank, // bulunamazsa -1
       total: ordered.length, // taranan sonuç sayısı
       pages,
-    });
+    };
+    if (dbg) out.debug = dbg;
+    return res.json(out);
   } catch (e) {
     return res.status(500).json({ error: String((e && e.message) || e) });
   }
