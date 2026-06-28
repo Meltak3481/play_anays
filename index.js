@@ -1,66 +1,105 @@
 // =====================================================================
-// ASO Rank Backend (hardened + boot logs)
-// GET /rank?keyword=...&id=com.paket.adi&country=tr&lang=tr&num=250
+// ASO Rank Backend (SearchApi.io - Google Play Store)
+// GET /rank?keyword=...&id=com.paket.adi&country=tr&lang=tr&pages=8
+// API anahtarı koda GÖMÜLMEZ; Railway "Variables" -> SEARCHAPI_KEY
 // =====================================================================
-
-console.log('[boot] basliyor... PORT env =', process.env.PORT);
-
-process.on('uncaughtException', (e) => console.error('[uncaughtException]', e));
-process.on('unhandledRejection', (e) => console.error('[unhandledRejection]', e));
 
 const express = require('express');
 const cors = require('cors');
 
-// google-play-scraper'i savunmaci sekilde yukle (hata olursa logla, surec olmesin)
-let gplay = null;
-try {
-  gplay = require('google-play-scraper');
-  if (gplay && gplay.default) gplay = gplay.default; // ESM default ihtimali
-  console.log('[boot] google-play-scraper yuklendi. search tipi =', typeof gplay.search);
-} catch (e) {
-  console.error('[boot] google-play-scraper YUKLENEMEDI:', e);
-}
-
 const app = express();
 app.use(cors());
 
+const API_KEY = process.env.SEARCHAPI_KEY;
+
 app.get('/', (req, res) => {
-  res.send('ASO Rank Backend calisiyor -> /rank?keyword=...&id=...');
+  res.send('ASO Rank Backend (SearchApi) calisiyor -> /rank?keyword=...&id=...');
 });
 
 app.get('/rank', async (req, res) => {
   try {
-    if (!gplay || typeof gplay.search !== 'function') {
-      return res.status(500).json({ error: 'google-play-scraper yuklenemedi (loglara bak)' });
+    if (!API_KEY) {
+      return res
+          .status(500)
+          .json({ error: 'SEARCHAPI_KEY tanimli degil (Railway > Variables)' });
     }
 
     const keyword = (req.query.keyword || '').trim();
     const id = (req.query.id || '').trim();
-    const country = (req.query.country || 'tr').toLowerCase();
-    const lang = (req.query.lang || 'tr').toLowerCase();
-    let num = parseInt(req.query.num || '250', 10);
-    if (isNaN(num) || num <= 0) num = 250;
-    if (num > 250) num = 250;
+    const gl = (req.query.country || 'tr').toLowerCase();
+    const hl = (req.query.lang || 'tr').toLowerCase();
+    let maxPages = parseInt(req.query.pages || '8', 10);
+    if (isNaN(maxPages) || maxPages <= 0) maxPages = 8;
+    if (maxPages > 15) maxPages = 15; // kredi koruması
 
     if (!keyword || !id) {
       return res.status(400).json({ error: 'keyword ve id zorunlu' });
     }
 
-    const list = await gplay.search({ term: keyword, num, country, lang });
-    const idx = list.findIndex((a) => (a.appId || '').toLowerCase() === id.toLowerCase());
+    const ordered = [];
+    const seen = new Set();
+    const lowerId = id.toLowerCase();
+    let token = null;
+    let pages = 0;
+    let rank = -1;
+
+    while (pages < maxPages) {
+      pages++;
+      const params = new URLSearchParams({
+        engine: 'google_play_store',
+        store: 'apps',
+        q: keyword,
+        gl,
+        hl,
+        api_key: API_KEY,
+      });
+      if (token) params.set('next_page_token', token);
+
+      const r = await fetch('https://www.searchapi.io/api/v1/search?' + params.toString());
+      if (!r.ok) {
+        const t = await r.text();
+        return res.status(502).json({
+          error: 'SearchApi hata',
+          status: r.status,
+          detail: t.slice(0, 200),
+        });
+      }
+      const data = await r.json();
+
+      const sections = Array.isArray(data.organic_results) ? data.organic_results : [];
+      for (const sec of sections) {
+        const items = Array.isArray(sec.items) ? sec.items : [];
+        for (const it of items) {
+          const pid = it.product_id;
+          if (pid && !seen.has(pid)) {
+            seen.add(pid);
+            ordered.push(pid);
+          }
+        }
+      }
+
+      const idx = ordered.findIndex((e) => e.toLowerCase() === lowerId);
+      if (idx >= 0) {
+        rank = idx + 1;
+        break; // bulundu -> dur (kredi tasarrufu)
+      }
+
+      token = data.pagination && data.pagination.next_page_token;
+      if (!token) break; // son sayfa
+    }
 
     return res.json({
       keyword,
       id,
-      country,
-      rank: idx >= 0 ? idx + 1 : -1,
-      total: list.length,
+      country: gl,
+      rank, // bulunamazsa -1
+      total: ordered.length, // taranan sonuç sayısı
+      pages,
     });
   } catch (e) {
-    console.error('[/rank hata]', e);
     return res.status(500).json({ error: String((e && e.message) || e) });
   }
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, '0.0.0.0', () => console.log('[boot] listening on ' + PORT));
+app.listen(PORT, () => console.log('ASO Rank Backend (SearchApi) listening on ' + PORT));

@@ -1,14 +1,13 @@
 {
   "name": "aso-rank-backend",
-  "version": "1.0.0",
-  "description": "Play Store keyword rank checker (google-play-scraper)",
+  "version": "2.0.0",
+  "description": "Play Store keyword rank checker (SearchApi.io)",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
-    "express": "^4.19.2",
-    "google-play-scraper": "^9.0.0"
+    "express": "^4.19.2"
   }
 }
